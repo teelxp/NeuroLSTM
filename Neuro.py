@@ -89,8 +89,8 @@ def modified_loss(pred_pressure, true_pressure, m_in, m_out_pred, lambda_val=1.0
     physics_loss = F.mse_loss(m_in, m_out_pred)
     return data_loss + lambda_val * physics_loss, data_loss, physics_loss
 
-# Рассчёт точности, F1-меры и физической согласованности
-def calculate_metrics(true_labels, predicted_labels, pred_pressure, m_out_pred, m_in_test, threshold=0.5):
+# Рассчёт точности, F1-меры, физической согласованности и точности прогноза
+def calculate_metrics(true_labels, predicted_labels, pred_pressure, true_pressure, m_out_pred, m_in_test, threshold=0.1):
     true_positive = ((predicted_labels == 1) & (true_labels == 1)).sum().item()
     false_positive = ((predicted_labels == 1) & (true_labels == 0)).sum().item()
     false_negative = ((predicted_labels == 0) & (true_labels == 1)).sum().item()
@@ -105,11 +105,13 @@ def calculate_metrics(true_labels, predicted_labels, pred_pressure, m_out_pred, 
     # F1-мера
     f1_score = 2 * (precision * recall) / (precision + recall + 1e-8)
 
-    # Проверка физических ограничений
-    physics_violations = (torch.abs(m_out_pred - m_in_test) > threshold).float().mean().item()
-    physics_consistency = 1 - physics_violations
+    # Точность прогноза давления
+    prediction_accuracy = ((torch.abs(pred_pressure - true_pressure) < threshold).float().mean().item()) * 100
 
-    return accuracy, f1_score, physics_consistency
+    # Соответствие физическим ограничениям
+    physics_consistency = ((torch.abs(m_out_pred - m_in_test) < threshold).float().mean().item()) * 100
+
+    return accuracy, f1_score, prediction_accuracy, physics_consistency
 
 # Нормализация данных
 data_file = "data_for_lstm.csv"
@@ -142,7 +144,7 @@ x_train, x_test, z_train, z_test, y_train, y_test, m_in_train, m_in_test, acc_tr
 # Модель
 model = AdaptiveLSTM(input_dim, 50, additional_dim, 2, output_dim).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.01)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.001)
 classification_loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([5.0], device=device))
 
 # Функция склонения слов
@@ -208,13 +210,14 @@ with torch.no_grad():
     pred_pressure, pred_m_out, pred_accident = outputs[:, :, 0:1], outputs[:, :, 1:2], torch.sigmoid(outputs[:, :, 2:])
     predicted_accidents = (pred_accident > 0.5).float()
 
-    accuracy, f1_score, physics_consistency = calculate_metrics(
-        acc_test, predicted_accidents, pred_pressure, pred_m_out, m_in_test
+    accuracy, f1_score, prediction_accuracy, physics_consistency = calculate_metrics(
+        acc_test, predicted_accidents, pred_pressure, y_test, pred_m_out, m_in_test
     )
 
     print(f"Точность классификации аварий: {accuracy * 100:.2f}%")
     print(f"F1-мера классификации аварий: {f1_score:.4f}")
-    print(f"Соответствие физическим ограничениям: {physics_consistency * 100:.2f}%")
+    print(f"Точность прогноза давления: {prediction_accuracy:.2f}%")
+    print(f"Соответствие физическим ограничениям: {physics_consistency:.2f}%")
     print(f"Истинные аварии: {acc_test.sum().item()}, Предсказанные аварии: {predicted_accidents.sum().item()}")
 
     if predicted_accidents.sum().item() > 0:
