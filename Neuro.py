@@ -11,6 +11,7 @@ import time
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Устройство для обучения: {device}")
 
+
 # Адаптивная (модифицированная) LSTM-ячейка
 class AdaptiveLSTMCell(nn.Module):
     def __init__(self, input_dim, hidden_dim, additional_dim):
@@ -46,6 +47,7 @@ class AdaptiveLSTMCell(nn.Module):
         o_t = torch.sigmoid(self.W_o(x_t) + self.U_o(h_prev) + self.V_o(z_t) + self.b_o)
         h_t = self.dropout(o_t * torch.tanh(c_t))  # Dropout на выходе
         return h_t, c_t
+
 
 # Полный адаптивный (модифицированный) LSTM-слой
 class AdaptiveLSTM(nn.Module):
@@ -83,14 +85,17 @@ class AdaptiveLSTM(nn.Module):
         outputs = torch.stack(outputs, dim=1)
         return self.fc(outputs), (torch.stack(h), torch.stack(c))
 
+
 # Модифицированная функция потерь
 def modified_loss(pred_pressure, true_pressure, m_in, m_out_pred, lambda_val=1.0):
     data_loss = F.mse_loss(pred_pressure, true_pressure)
     physics_loss = F.mse_loss(m_in, m_out_pred)
     return data_loss + lambda_val * physics_loss, data_loss, physics_loss
 
+
 # Рассчёт точности, F1-меры, физической согласованности и точности прогноза
-def calculate_metrics(true_labels, predicted_labels, pred_pressure, true_pressure, m_out_pred, m_in_test, threshold=0.1):
+def calculate_metrics(true_labels, predicted_labels, pred_pressure, true_pressure, m_out_pred, m_in_test,
+                      threshold=0.1):
     true_positive = ((predicted_labels == 1) & (true_labels == 1)).sum().item()
     false_positive = ((predicted_labels == 1) & (true_labels == 0)).sum().item()
     false_negative = ((predicted_labels == 0) & (true_labels == 1)).sum().item()
@@ -113,6 +118,7 @@ def calculate_metrics(true_labels, predicted_labels, pred_pressure, true_pressur
 
     return accuracy, f1_score, prediction_accuracy, physics_consistency
 
+
 # Нормализация данных
 data_file = "data_for_lstm.csv"
 df = pd.read_csv(data_file)
@@ -120,6 +126,10 @@ scaler = MinMaxScaler()
 df[["pressure", "temperature", "flow_rate", "external_temp", "humidity", "target_pressure", "mass_in"]] = \
     scaler.fit_transform(
         df[["pressure", "temperature", "flow_rate", "external_temp", "humidity", "target_pressure", "mass_in"]])
+
+# Масштабирование целевых переменных (давление) отдельно
+pressure_scaler = MinMaxScaler()
+df["target_pressure"] = pressure_scaler.fit_transform(df[["target_pressure"]])
 
 # Настройка параметров
 seq_len, input_dim, additional_dim, output_dim = 30, 3, 2, 3
@@ -142,10 +152,11 @@ x_train, x_test, z_train, z_test, y_train, y_test, m_in_train, m_in_test, acc_tr
 )
 
 # Модель
-model = AdaptiveLSTM(input_dim, 50, additional_dim, 2, output_dim).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5000, gamma=0.001)
+model = AdaptiveLSTM(input_dim, 100, additional_dim, 3, output_dim).to(device)
+optimizer = torch.optim.AdamW(model.parameters(), lr=0.0005, weight_decay=1e-4)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=1e-6)
 classification_loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([5.0], device=device))
+
 
 # Функция склонения слов
 def get_plural_form(value, singular, dual, plural):
@@ -158,8 +169,32 @@ def get_plural_form(value, singular, dual, plural):
     else:
         return plural
 
+
 # Измерение времени
 start_time = time.time()
+
+# Повторение аварийных случаев для балансировки
+accident_indices = (acc_train.squeeze(-1) == 1).nonzero(as_tuple=True)[0]
+non_accident_indices = (acc_train.squeeze(-1) == 0).nonzero(as_tuple=True)[0]
+
+if len(accident_indices) < len(non_accident_indices):
+    diff = len(non_accident_indices) - len(accident_indices)
+    additional_indices = accident_indices.repeat(diff // len(accident_indices) + 1)[:diff]
+    x_train = torch.cat([x_train, x_train[additional_indices]], dim=0)
+    z_train = torch.cat([z_train, z_train[additional_indices]], dim=0)
+    y_train = torch.cat([y_train, y_train[additional_indices]], dim=0)
+    m_in_train = torch.cat([m_in_train, m_in_train[additional_indices]], dim=0)
+    acc_train = torch.cat([acc_train, acc_train[additional_indices]], dim=0)
+
+# Аугментация данных с добавлением случайного шума
+noise = torch.normal(0, 0.01, size=x_train.size(), device=device)
+augmented_x_train = x_train + noise
+augmented_z_train = z_train + torch.normal(0, 0.01, size=z_train.size(), device=device)
+x_train = torch.cat([x_train, augmented_x_train], dim=0)
+z_train = torch.cat([z_train, augmented_z_train], dim=0)
+y_train = torch.cat([y_train, y_train], dim=0)
+m_in_train = torch.cat([m_in_train, m_in_train], dim=0)
+acc_train = torch.cat([acc_train, acc_train], dim=0)
 
 # Обучение
 epochs, lambda_val = 25000, 10.0
@@ -172,7 +207,7 @@ for epoch in range(epochs):
 
     loss_regression, data_loss, physics_loss = modified_loss(pred_pressure, y_train, m_in_train, pred_m_out, lambda_val)
     loss_classification = classification_loss_fn(pred_accident, acc_train)
-    total_loss = loss_regression + lambda_val * physics_loss + 15 * loss_classification
+    total_loss = 0.7 * loss_regression + 0.2 * physics_loss + 15 * loss_classification
 
     total_loss.backward()
     optimizer.step()
@@ -219,6 +254,7 @@ with torch.no_grad():
     print(f"Точность прогноза давления: {prediction_accuracy:.2f}%")
     print(f"Соответствие физическим ограничениям: {physics_consistency:.2f}%")
     print(f"Истинные аварии: {acc_test.sum().item()}, Предсказанные аварии: {predicted_accidents.sum().item()}")
+    print(f"Точность прогноза давления: {prediction_accuracy:.2f}%")
 
     if predicted_accidents.sum().item() > 0:
         print("Модель предсказывает, что возможны аварии.")
