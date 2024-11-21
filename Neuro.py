@@ -268,4 +268,3 @@ with torch.no_grad():
     plt.title("Прогноз давления на реальных данных")
     plt.grid(True)  # Включить сетку для удобства
     plt.show()
-
