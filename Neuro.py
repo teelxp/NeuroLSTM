@@ -11,7 +11,6 @@ import time
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Устройство для обучения: {device}")
 
-
 # Адаптивная (модифицированная) LSTM-ячейка
 class AdaptiveLSTMCell(nn.Module):
     def __init__(self, input_dim, hidden_dim, additional_dim):
@@ -47,7 +46,6 @@ class AdaptiveLSTMCell(nn.Module):
         o_t = torch.sigmoid(self.W_o(x_t) + self.U_o(h_prev) + self.V_o(z_t) + self.b_o)
         h_t = self.dropout(o_t * torch.tanh(c_t))  # Dropout на выходе
         return h_t, c_t
-
 
 # Полный адаптивный (модифицированный) LSTM-слой
 class AdaptiveLSTM(nn.Module):
@@ -85,13 +83,33 @@ class AdaptiveLSTM(nn.Module):
         outputs = torch.stack(outputs, dim=1)
         return self.fc(outputs), (torch.stack(h), torch.stack(c))
 
-
 # Модифицированная функция потерь
 def modified_loss(pred_pressure, true_pressure, m_in, m_out_pred, lambda_val=1.0):
     data_loss = F.mse_loss(pred_pressure, true_pressure)
     physics_loss = F.mse_loss(m_in, m_out_pred)
     return data_loss + lambda_val * physics_loss, data_loss, physics_loss
 
+# Рассчёт точности, F1-меры и физической согласованности
+def calculate_metrics(true_labels, predicted_labels, pred_pressure, m_out_pred, m_in_test, threshold=0.5):
+    true_positive = ((predicted_labels == 1) & (true_labels == 1)).sum().item()
+    false_positive = ((predicted_labels == 1) & (true_labels == 0)).sum().item()
+    false_negative = ((predicted_labels == 0) & (true_labels == 1)).sum().item()
+
+    # Точность (Accuracy)
+    accuracy = (predicted_labels == true_labels).float().mean().item()
+
+    # Precision и Recall
+    precision = true_positive / (true_positive + false_positive + 1e-8)
+    recall = true_positive / (true_positive + false_negative + 1e-8)
+
+    # F1-мера
+    f1_score = 2 * (precision * recall) / (precision + recall + 1e-8)
+
+    # Проверка физических ограничений
+    physics_violations = (torch.abs(m_out_pred - m_in_test) > threshold).float().mean().item()
+    physics_consistency = 1 - physics_violations
+
+    return accuracy, f1_score, physics_consistency
 
 # Нормализация данных
 data_file = "data_for_lstm.csv"
@@ -120,43 +138,6 @@ to_tensor = lambda *arrays: [torch.tensor(arr, dtype=torch.float32).to(device) f
 x_train, x_test, z_train, z_test, y_train, y_test, m_in_train, m_in_test, acc_train, acc_test = to_tensor(
     x_train, x_test, z_train, z_test, y_train, y_test, m_in_train, m_in_test, acc_train, acc_test
 )
-
-# Аугментация аварий
-accidents = x_train[acc_train.squeeze(-1) == 1]  # Примеры аварий (класс 1)
-acc_z = z_train[acc_train.squeeze(-1) == 1]
-acc_y = y_train[acc_train.squeeze(-1) == 1]
-acc_m_in = m_in_train[acc_train.squeeze(-1) == 1]
-
-if accidents.size(0) > 0:  # Проверяем, есть ли аварии
-    noise = torch.normal(0, 0.01, size=accidents.size(), device=device)
-    augmented_accidents = accidents + noise
-
-    # Проверяем размерности и корректируем
-    if augmented_accidents.size(1) != seq_len:
-        # Разбиваем данные на последовательности длины seq_len
-        augmented_accidents = augmented_accidents.unfold(0, seq_len, seq_len).permute(0, 2, 1)
-
-    if acc_z.size(1) != seq_len:
-        acc_z = acc_z.unfold(0, seq_len, seq_len).permute(0, 2, 1)
-    if acc_y.size(1) != seq_len:
-        acc_y = acc_y.unfold(0, seq_len, seq_len).permute(0, 2, 1)
-    if acc_m_in.size(1) != seq_len:
-        acc_m_in = acc_m_in.unfold(0, seq_len, seq_len).permute(0, 2, 1)
-
-    # Добавляем аугментированные данные
-    x_train = torch.cat([x_train, augmented_accidents], dim=0)
-    z_train = torch.cat([z_train, acc_z], dim=0)
-    y_train = torch.cat([y_train, acc_y], dim=0)
-    m_in_train = torch.cat([m_in_train, acc_m_in], dim=0)
-    acc_train = torch.cat([acc_train, torch.ones_like(augmented_accidents[:, :, 0:1])], dim=0)
-
-# Проверка размеров данных после аугментации
-print(f"x_train shape: {x_train.shape}")
-print(f"z_train shape: {z_train.shape}")
-print(f"y_train shape: {y_train.shape}")
-print(f"m_in_train shape: {m_in_train.shape}")
-print(f"acc_train shape: {acc_train.shape}")
-
 
 # Модель
 model = AdaptiveLSTM(input_dim, 50, additional_dim, 2, output_dim).to(device)
@@ -193,8 +174,6 @@ for epoch in range(epochs):
 
     total_loss.backward()
     optimizer.step()
-
-    # Шаг изменения скорости обучения
     scheduler.step()
 
     if (epoch + 1) % 10 == 0:
@@ -203,15 +182,12 @@ for epoch in range(epochs):
             f"Ошибка данных: {data_loss.item():.4f}, Ошибка физического ограничения: {physics_loss.item():.4f}, "
             f"Ошибка классификации: {loss_classification.item():.4f}"
         )
-
-        # Текущая скорость обучения
         current_lr = scheduler.get_last_lr()[0]
         print(f"Текущая скорость обучения: {current_lr:.6f}")
 
 # Рассчёт времени выполнения
 end_time = time.time()
 training_time_seconds = end_time - start_time
-
 training_time_hours = int(training_time_seconds // 3600)
 training_time_minutes = int((training_time_seconds % 3600) // 60)
 remaining_seconds = int(training_time_seconds % 60)
@@ -229,20 +205,25 @@ print(
 model.eval()
 with torch.no_grad():
     outputs, _ = model(x_test, z_test)
-    pred_accident = torch.sigmoid(outputs[:, :, 2:])  # Вероятности аварий
-
+    pred_pressure, pred_m_out, pred_accident = outputs[:, :, 0:1], outputs[:, :, 1:2], torch.sigmoid(outputs[:, :, 2:])
     predicted_accidents = (pred_accident > 0.5).float()
+
+    accuracy, f1_score, physics_consistency = calculate_metrics(
+        acc_test, predicted_accidents, pred_pressure, pred_m_out, m_in_test
+    )
+
+    print(f"Точность классификации аварий: {accuracy * 100:.2f}%")
+    print(f"F1-мера классификации аварий: {f1_score:.4f}")
+    print(f"Соответствие физическим ограничениям: {physics_consistency * 100:.2f}%")
     print(f"Истинные аварии: {acc_test.sum().item()}, Предсказанные аварии: {predicted_accidents.sum().item()}")
 
-    # Сообщение о предсказанных авариях
     if predicted_accidents.sum().item() > 0:
         print("Модель предсказывает, что возможны аварии.")
     else:
         print("Модель не предсказывает аварий.")
 
-    # Визуализация
     plt.plot(y_test[0, :, 0].cpu().numpy(), label="Истинное давление")
-    plt.plot(outputs[0, :, 0].cpu().numpy(), label="Предсказанное давление")
+    plt.plot(pred_pressure[0, :, 0].cpu().numpy(), label="Предсказанное давление")
     plt.legend()
     plt.title("Прогноз давления на тестовых данных")
     plt.show()
