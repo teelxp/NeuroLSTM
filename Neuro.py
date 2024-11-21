@@ -254,7 +254,6 @@ with torch.no_grad():
     print(f"Точность прогноза давления: {prediction_accuracy:.2f}%")
     print(f"Соответствие физическим ограничениям: {physics_consistency:.2f}%")
     print(f"Истинные аварии: {acc_test.sum().item()}, Предсказанные аварии: {predicted_accidents.sum().item()}")
-    print(f"Точность прогноза давления: {prediction_accuracy:.2f}%")
 
     if predicted_accidents.sum().item() > 0:
         print("Модель предсказывает, что возможны аварии.")
