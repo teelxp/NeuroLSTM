@@ -262,6 +262,10 @@ with torch.no_grad():
 
     plt.plot(y_test[0, :, 0].cpu().numpy(), label="Истинное давление")
     plt.plot(pred_pressure[0, :, 0].cpu().numpy(), label="Предсказанное давление")
+    plt.xlabel("Время (дискретные шаги t)")  # Подпись оси X
+    plt.ylabel("Давление")  # Подпись оси Y
     plt.legend()
-    plt.title("Прогноз давления на тестовых данных")
+    plt.title("Прогноз давления на реальных данных")
+    plt.grid(True)  # Включить сетку для удобства
     plt.show()
+
