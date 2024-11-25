@@ -243,7 +243,7 @@ model.eval()
 with torch.no_grad():
     outputs, _ = model(x_test, z_test)
     pred_pressure, pred_m_out, pred_accident = outputs[:, :, 0:1], outputs[:, :, 1:2], torch.sigmoid(outputs[:, :, 2:])
-    predicted_accidents = (pred_accident > 0.5).float()
+    predicted_accidents = (pred_accident > 0.4).float()
 
     accuracy, f1_score, prediction_accuracy, physics_consistency = calculate_metrics(
         acc_test, predicted_accidents, pred_pressure, y_test, pred_m_out, m_in_test
