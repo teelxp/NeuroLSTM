@@ -86,11 +86,23 @@ class AdaptiveLSTM(nn.Module):
         return self.fc(outputs), (torch.stack(h), torch.stack(c))
 
 
-# Модифицированная функция потерь
-def modified_loss(pred_pressure, true_pressure, m_in, m_out_pred, lambda_val=1.0):
+# Модифицированная функция потерь с учётом закона сохранения массы
+def modified_loss(pred_pressure, true_pressure, m_in, m_out_pred, dM_dt_pred, lambda_val=1.0):
+    # Ошибка регрессии давления
     data_loss = F.mse_loss(pred_pressure, true_pressure)
-    physics_loss = F.mse_loss(m_in, m_out_pred)
-    return data_loss + lambda_val * physics_loss, data_loss, physics_loss
+    # Ошибка физического ограничения, включающая производную массы
+    physics_loss = F.mse_loss(m_in - m_out_pred, dM_dt_pred)
+    # Общая ошибка
+    total_loss = data_loss + lambda_val * physics_loss
+    return total_loss, data_loss, physics_loss
+
+
+def calculate_mass_derivative(mass_values, delta_t):
+    # Вычисление разностей для приближённой производной
+    dM_dt = (mass_values[:, 1:, :] - mass_values[:, :-1, :]) / delta_t
+    # Дополнение нулём для первого временного шага
+    dM_dt = torch.cat([torch.zeros_like(dM_dt[:, :1, :]), dM_dt], dim=1)
+    return dM_dt
 
 
 # Рассчёт точности, F1-меры, физической согласованности и точности прогноза
@@ -197,7 +209,7 @@ m_in_train = torch.cat([m_in_train, m_in_train], dim=0)
 acc_train = torch.cat([acc_train, acc_train], dim=0)
 
 # Обучение
-epochs, lambda_val = 25000, 10.0
+epochs, lambda_val, delta_t = 25000, 10.0, 1.0  # delta_t - шаг времени
 for epoch in range(epochs):
     model.train()
     optimizer.zero_grad()
@@ -205,9 +217,15 @@ for epoch in range(epochs):
     outputs, _ = model(x_train, z_train)
     pred_pressure, pred_m_out, pred_accident = outputs[:, :, 0:1], outputs[:, :, 1:2], outputs[:, :, 2:]
 
-    loss_regression, data_loss, physics_loss = modified_loss(pred_pressure, y_train, m_in_train, pred_m_out, lambda_val)
+    # Вычисление производной массы
+    dM_dt_pred = calculate_mass_derivative(pred_m_out, delta_t)
+
+    # Общая ошибка
+    loss_regression, data_loss, physics_loss = modified_loss(
+        pred_pressure, y_train, m_in_train, pred_m_out, dM_dt_pred, lambda_val
+    )
     loss_classification = classification_loss_fn(pred_accident, acc_train)
-    total_loss = 0.7 * loss_regression + 0.2 * physics_loss + 15 * loss_classification
+    total_loss = 0.7 * loss_regression + 15 * loss_classification
 
     total_loss.backward()
     optimizer.step()
@@ -219,6 +237,7 @@ for epoch in range(epochs):
             f"Ошибка данных: {data_loss.item():.4f}, Ошибка физического ограничения: {physics_loss.item():.4f}, "
             f"Ошибка классификации: {loss_classification.item():.4f}"
         )
+
         current_lr = scheduler.get_last_lr()[0]
         print(f"Текущая скорость обучения: {current_lr:.6f}")
 
