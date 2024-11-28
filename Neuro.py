@@ -17,35 +17,54 @@ class AdaptiveLSTMCell(nn.Module):
     def __init__(self, input_dim, hidden_dim, additional_dim):
         super(AdaptiveLSTMCell, self).__init__()
         self.hidden_dim = hidden_dim
-        self.dropout = nn.Dropout(0.2)  # Dropout для регуляризации
+        self.dropout = nn.Dropout(0.2)
 
+        # Гейты забывания
         self.W_f = nn.Linear(input_dim, hidden_dim)
         self.U_f = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.V_f = nn.Linear(additional_dim, hidden_dim, bias=False)
+        self.M_f = nn.Linear(1, hidden_dim, bias=False)  # Учёт массы
         self.b_f = nn.Parameter(torch.zeros(hidden_dim))
 
+        # Гейты записи
         self.W_i = nn.Linear(input_dim, hidden_dim)
         self.U_i = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.V_i = nn.Linear(additional_dim, hidden_dim, bias=False)
+        self.M_i = nn.Linear(1, hidden_dim, bias=False)  # Учёт массы
         self.b_i = nn.Parameter(torch.zeros(hidden_dim))
 
+        # Обновление состояния
         self.W_c = nn.Linear(input_dim, hidden_dim)
         self.U_c = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.V_c = nn.Linear(additional_dim, hidden_dim, bias=False)
+        self.M_c = nn.Linear(1, hidden_dim, bias=False)  # Учёт массы
         self.b_c = nn.Parameter(torch.zeros(hidden_dim))
 
+        # Выходной гейт
         self.W_o = nn.Linear(input_dim, hidden_dim)
         self.U_o = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.V_o = nn.Linear(additional_dim, hidden_dim, bias=False)
+        self.M_o = nn.Linear(1, hidden_dim, bias=False)  # Учёт массы
         self.b_o = nn.Parameter(torch.zeros(hidden_dim))
 
-    def forward(self, x_t, h_prev, c_prev, z_t):
-        f_t = torch.sigmoid(self.W_f(x_t) + self.U_f(h_prev) + self.V_f(z_t) + self.b_f)
-        i_t = torch.sigmoid(self.W_i(x_t) + self.U_i(h_prev) + self.V_i(z_t) + self.b_i)
-        c_hat_t = torch.tanh(self.W_c(x_t) + self.U_c(h_prev) + self.V_c(z_t) + self.b_c)
+    def forward(self, x_t, h_prev, c_prev, z_t, mass_discrepancy):
+        """
+        mass_discrepancy: Отклонение от закона сохранения массы
+        """
+        f_t = torch.sigmoid(
+            self.W_f(x_t) + self.U_f(h_prev) + self.V_f(z_t) + self.M_f(mass_discrepancy) + self.b_f
+        )
+        i_t = torch.sigmoid(
+            self.W_i(x_t) + self.U_i(h_prev) + self.V_i(z_t) + self.M_i(mass_discrepancy) + self.b_i
+        )
+        c_hat_t = torch.tanh(
+            self.W_c(x_t) + self.U_c(h_prev) + self.V_c(z_t) + self.M_c(mass_discrepancy) + self.b_c
+        )
         c_t = f_t * c_prev + i_t * c_hat_t
-        o_t = torch.sigmoid(self.W_o(x_t) + self.U_o(h_prev) + self.V_o(z_t) + self.b_o)
-        h_t = self.dropout(o_t * torch.tanh(c_t))  # Dropout на выходе
+        o_t = torch.sigmoid(
+            self.W_o(x_t) + self.U_o(h_prev) + self.V_o(z_t) + self.M_o(mass_discrepancy) + self.b_o
+        )
+        h_t = self.dropout(o_t * torch.tanh(c_t))
         return h_t, c_t
 
 
@@ -64,7 +83,7 @@ class AdaptiveLSTM(nn.Module):
 
         self.fc = nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, x, z, h0=None, c0=None):
+    def forward(self, x, z, mass_discrepancy, h0=None, c0=None):
         batch_size, seq_len, _ = x.size()
 
         if h0 is None:
@@ -76,9 +95,9 @@ class AdaptiveLSTM(nn.Module):
         outputs = []
 
         for t in range(seq_len):
-            x_t, z_t = x[:, t, :], z[:, t, :]
+            x_t, z_t, mass_t = x[:, t, :], z[:, t, :], mass_discrepancy[:, t, :]
             for layer in range(self.num_layers):
-                h[layer], c[layer] = self.lstm_cells[layer](x_t, h[layer], c[layer], z_t)
+                h[layer], c[layer] = self.lstm_cells[layer](x_t, h[layer], c[layer], z_t, mass_t)
                 x_t = h[layer]
             outputs.append(h[-1])
 
@@ -214,8 +233,12 @@ for epoch in range(epochs):
     model.train()
     optimizer.zero_grad()
 
-    outputs, _ = model(x_train, z_train)
+    # Прогон данных через модель
+    outputs, _ = model(x_train, z_train, m_in_train)
     pred_pressure, pred_m_out, pred_accident = outputs[:, :, 0:1], outputs[:, :, 1:2], outputs[:, :, 2:]
+
+    # Вычисление отклонения массы
+    mass_discrepancy = m_in_train - pred_m_out
 
     # Вычисление производной массы
     dM_dt_pred = calculate_mass_derivative(pred_m_out, delta_t)
@@ -227,10 +250,12 @@ for epoch in range(epochs):
     loss_classification = classification_loss_fn(pred_accident, acc_train)
     total_loss = 0.7 * loss_regression + 15 * loss_classification
 
+    # Обновление весов
     total_loss.backward()
     optimizer.step()
     scheduler.step()
 
+    # Вывод метрик каждые 10 эпох
     if (epoch + 1) % 10 == 0:
         print(
             f"Эпоха {epoch + 1}, Общая ошибка: {total_loss.item():.4f}, "
@@ -260,13 +285,17 @@ print(
 # Тестирование и прогноз аварий
 model.eval()
 with torch.no_grad():
-    outputs, _ = model(x_test, z_test)
+    outputs, _ = model(x_test, z_test, m_in_test)
     pred_pressure, pred_m_out, pred_accident = outputs[:, :, 0:1], outputs[:, :, 1:2], torch.sigmoid(outputs[:, :, 2:])
-    predicted_accidents = (pred_accident > 0.4).float()
 
+    # Вычисление отклонения массы
+    mass_discrepancy = m_in_test - pred_m_out
+
+    # Вычисление метрик
     accuracy, f1_score, prediction_accuracy, physics_consistency = calculate_metrics(
-        acc_test, predicted_accidents, pred_pressure, y_test, pred_m_out, m_in_test
+        acc_test, (pred_accident > 0.4).float(), pred_pressure, y_test, pred_m_out, m_in_test
     )
+    predicted_accidents = (pred_accident > 0.4).float()
 
     print(f"Точность классификации аварий: {accuracy * 100:.2f}%")
     print(f"F1-мера классификации аварий: {f1_score:.4f}")
