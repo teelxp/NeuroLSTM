@@ -12,7 +12,6 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 import matplotlib.pyplot as plt
 
-
 # Расширенная функция calculate_metrics
 def calculate_metrics(
         true_accidents,
@@ -52,7 +51,6 @@ def calculate_metrics(
     physics_consistency = np.mean(mass_diff < threshold_pressure_deviation) * 100.0
 
     return accuracy, f1, pressure_accuracy, physics_consistency
-
 
 def load_data_from_postgres():
     """
@@ -95,11 +93,9 @@ def load_data_from_postgres():
 
     return df
 
-
 # Проверка устройства
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Устройство для обучения: {device}")
-
 
 # Адаптивная LSTM-ячейка
 class AdaptiveLSTMCell(nn.Module):
@@ -166,7 +162,6 @@ class AdaptiveLSTMCell(nn.Module):
         )
         h_t = self.dropout(o_t * torch.tanh(c_t))
         return h_t, c_t
-
 
 # Адаптивный LSTM с тремя выходами
 class AdaptiveLSTM(nn.Module):
@@ -248,7 +243,6 @@ class AdaptiveLSTM(nn.Module):
         # Соединяем выходы по оси времени
         outputs = torch.cat(outputs, dim=1)  # (batch_size, seq_len, 3)
         return outputs, (h, c)
-
 
 # Загружаем данные
 df = load_data_from_postgres()
@@ -346,11 +340,16 @@ model = AdaptiveLSTM(
 # Функции потерь
 criterion_reg = nn.L1Loss()
 criterion_cls = nn.BCEWithLogitsLoss()
+
+# Добавление физического ограничения: закон сохранения массы
+# Мы будем использовать L1Loss для этой цели, чтобы модель минимизировала |m_out - m_in|
+physics_criterion = nn.L1Loss()
+
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 writer = SummaryWriter('runs/adaptive_lstm_experiment_1')
 
-num_epochs = 150
+num_epochs = 550
 best_val_loss = np.inf
 
 # Цикл обучения
@@ -375,17 +374,25 @@ for epoch in range(num_epochs):
         y_batch = y_batch.squeeze(-1)  # (batch_size, seq_len)
         acc_batch = acc_batch.squeeze(-1)  # (batch_size, seq_len)
 
+        # Расчёт потерь
         loss_pressure = criterion_reg(pred_pressure, y_batch)
         loss_accident = criterion_cls(pred_acc_logit, acc_batch)
         loss_m_out = criterion_reg(pred_m_out, m_in_batch.squeeze(-1))
 
-        total_loss = loss_pressure + loss_accident + loss_m_out
+        # Физическое ограничение: m_out ≈ m_in
+        physics_loss = physics_criterion(pred_m_out, m_in_batch.squeeze(-1))
+
+        # Вес физического ограничения
+        physics_weight = 1.0  # Можно настроить
+
+        # Общая потеря
+        total_loss = loss_pressure + loss_accident + loss_m_out + physics_weight * physics_loss
         total_loss.backward()
         optimizer.step()
 
         train_losses.append(total_loss.item())
 
-    #Валидация
+    # Валидация
     model.eval()
     val_losses = []
     with torch.no_grad():
@@ -405,7 +412,13 @@ for epoch in range(num_epochs):
 
             val_loss_pressure = criterion_reg(val_pred_pressure, y_batch)
             val_loss_accident = criterion_cls(val_acc_logit, acc_batch)
-            val_loss = val_loss_pressure + val_loss_accident
+            val_loss_m_out = criterion_reg(val_pred_m_out, m_in_batch.squeeze(-1))
+
+            # Физическое ограничение на валидации
+            val_physics_loss = physics_criterion(val_pred_m_out, m_in_batch.squeeze(-1))
+
+            # Общая потеря на валидации
+            val_loss = val_loss_pressure + val_loss_accident + val_loss_m_out + physics_weight * val_physics_loss
 
             val_losses.append(val_loss.item())
 
@@ -431,8 +444,8 @@ for epoch in range(num_epochs):
         print(f"** Лучшая модель сохранена на эпохе {epoch + 1} со значением val_loss={avg_val_loss:.4f} **")
 
     print(f"Эпоха {epoch + 1}/{num_epochs}: "
-          f"Train Loss (MAE+BCE) = {avg_train_loss * 100:.4f}%, "
-          f"Val Loss (MAE+BCE) = {avg_val_loss * 100:.4f}%, "
+          f"Train Loss (MAE+BCE+Physics) = {avg_train_loss * 100:.4f}%, "
+          f"Val Loss (MAE+BCE+Physics) = {avg_val_loss * 100:.4f}%, "
           f"Val Acc = {val_accuracy * 100:.2f}%, "
           f"Prec = {val_precision * 100:.2f}%, "
           f"Rec = {val_recall * 100:.2f}%")
@@ -537,7 +550,6 @@ def visualize_multidimensional_data(x, z, y, m_in, acc, sample_index=0):
 
     plt.tight_layout()
     plt.show()
-
 
 # Пример визуализации для первого образца из тестовой выборки
 visualize_multidimensional_data(
