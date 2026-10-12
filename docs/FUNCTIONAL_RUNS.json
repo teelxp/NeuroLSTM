@@ -1,0 +1,41 @@
+{
+  "purpose": "functional_execution_only_NOT_dissertation_experiment",
+  "synthetic_semantic_training": {
+    "completed_epochs": 3,
+    "trained_parameters": 4824,
+    "training_seconds": 0.9931495849996281,
+    "test_used_for_selection": false,
+    "evaluated_components": [
+      "sem_reconstruction",
+      "sem_cause",
+      "sem_phase",
+      "sem_graph",
+      "sem_entropy",
+      "sem_wave"
+    ]
+  },
+  "architecture_100x3_training": {
+    "completed_epochs": 2,
+    "trained_parameters": 206303,
+    "training_seconds": 2.346504909000032,
+    "test_used_for_selection": false,
+    "windows": {
+      "train": 305,
+      "validation": 16,
+      "test": 66
+    }
+  },
+  "dissertation_25000_epochs_executed": false,
+  "real_measurements_used": false,
+  "environment": {
+    "python": "3.13.5",
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+    "torch": "2.10.0+cpu",
+    "numpy": "2.3.5",
+    "pandas": "2.2.3",
+    "scikit_learn": "1.8.0",
+    "device": "cpu",
+    "cuda_runtime": null,
+    "gpu": null
+  }
+}

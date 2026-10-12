@@ -1,0 +1,5 @@
+epoch=1/3 data=1.57688 phys=4.73921 sem=0.874499 lr=0.003
+epoch=2/3 data=1.52971 phys=4.47421 sem=0.87439 lr=0.002275
+epoch=3/3 data=1.51781 phys=4.27018 sem=0.852885 lr=0.000825
+epoch=1/2 data=1.56983 phys=6.09469 sem=0 lr=0.0005
+epoch=2/2 data=1.46887 phys=5.4716 sem=0 lr=0.0004999

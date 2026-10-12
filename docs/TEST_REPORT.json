@@ -1,0 +1,40 @@
+{
+  "purpose": "verification_of_new_implementation_not_historical_dissertation_results",
+  "test_command": "python -m pytest -q --junitxml=docs/tests.junit.xml",
+  "tests": 85,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "pytest_suite_seconds": 3.949,
+  "python": "3.13.5",
+  "checks_include": [
+    "mass_balance_gradient",
+    "literal_adaptive_cell",
+    "full_batch_gradient_accumulation",
+    "independent_chronological_splits",
+    "semantic_losses_and_shared_gradients",
+    "clustering",
+    "checkpoint_resume",
+    "computed_metrics",
+    "fail_closed_decision_rules",
+    "PINN_derivatives_and_tiny_Adam_LBFGS_training"
+  ],
+  "not_executed": [
+    "25000_epoch_dissertation_run_on_real_data",
+    "GPU_validation",
+    "live_PostgreSQL_integration",
+    "GitHub_Actions_run",
+    "full_Django_SPPР_or_operational_control_validation"
+  ],
+  "dissertation_table_metrics_injected": false,
+  "environment": {
+    "torch": "2.10.0+cpu",
+    "numpy": "2.3.5",
+    "pandas": "2.2.3",
+    "scikit-learn": "1.8.0",
+    "scipy": "1.17.0",
+    "pytest": "9.0.2",
+    "device": "cpu",
+    "cuda_available": false
+  }
+}

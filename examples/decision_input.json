@@ -1,0 +1,26 @@
+{
+  "scores": {
+    "stat": 0.92,
+    "phys": 0.9,
+    "sem": null
+  },
+  "quality": {
+    "stat": 1.0,
+    "phys": 1.0,
+    "sem": 0.0
+  },
+  "omega": {
+    "stat": 1.0,
+    "phys": 1.0,
+    "sem": 1.0
+  },
+  "thresholds": {
+    "stat": 0.8,
+    "phys": 0.8,
+    "sem": 0.8
+  },
+  "uncertainty": 0.1,
+  "gamma": 1.0,
+  "max_uncertainty": 0.2,
+  "required_complete": true
+}

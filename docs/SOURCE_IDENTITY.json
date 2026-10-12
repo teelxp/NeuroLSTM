@@ -1,0 +1,9 @@
+{
+  "thesis_filename": "Пальчевский_диссертация_исправленная_нумерация.pdf",
+  "pdf_pages": 323,
+  "sha256": "e12d6acb271382ee364f99ec0f12df180a6fec48a072a2d12310957b6beefdcb",
+  "repository": "teelxp/NeuroLSTM",
+  "reviewed_original_Neuro_py_blob": "c8338aceec90100d8184f27e52b6e3f8064cbb52",
+  "reviewed_original_README_blob": "a13fb5afb5f0607860757185be00e05f1f7a628b",
+  "new_version_status": "new_implementation_not_a_reconstruction_of_historical_training_results"
+}

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neurolstm-dissertation"
+version = "2.0.0"
+description = "Physics-informed adaptive LSTM with explicit dissertation-to-code traceability"
+requires-python = ">=3.11,<3.14"
+dependencies = ["torch>=2.6,<3", "numpy>=1.26,<3", "pandas>=2.2,<3", "scikit-learn>=1.5,<2"]
+
+[project.scripts]
+neurolstm = "neurolstm.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["neurolstm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

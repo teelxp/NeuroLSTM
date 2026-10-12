@@ -1,0 +1,25 @@
+{
+  "data_path": null,
+  "diameter_m": null,
+  "sound_speed_m_s": null,
+  "friction_lambda": null,
+  "baseline_velocity_m_s": null,
+  "adam_steps": 25000,
+  "lbfgs_steps": 5000,
+  "collocation_points": 20000,
+  "lr": 0.001,
+  "width": 64,
+  "layers": 6,
+  "validation_every": 100,
+  "classification_threshold": 0.5,
+  "seed": 42,
+  "device": "auto",
+  "weights": {
+    "data": 1.0,
+    "pde_p": 1.0,
+    "pde_m": 1.0,
+    "ic": 1.0,
+    "bc": 1.0,
+    "classification": 1.0
+  }
+}
